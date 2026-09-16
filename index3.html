@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#07131d">
+<title>Virtual Walk 2.0 — 華麗虛擬散步</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06101a;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Noto Sans TC",sans-serif;color:#fff}
+canvas{display:block;position:fixed;inset:0}
+#ui{position:fixed;inset:0;pointer-events:none;z-index:10}
+.top{position:absolute;top:max(12px,env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between;gap:10px}
+.card{background:rgba(5,12,20,.48);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(12px);box-shadow:0 10px 35px rgba(0,0,0,.25);border-radius:18px;padding:10px 13px}
+.brand{font-weight:800;letter-spacing:.4px}.sub{font-size:11px;opacity:.7;margin-top:2px}
+.stats{display:flex;gap:9px}.stat{text-align:center;min-width:52px}.num{font-size:18px;font-weight:800}.lab{font-size:9px;opacity:.65}
+#center{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);text-align:center;width:min(92vw,430px);text-shadow:0 3px 20px #000;transition:opacity .5s}
+#center.hidden{opacity:0}
+#landmark{font-size:27px;font-weight:900}.desc{margin-top:6px;font-size:13px;opacity:.9}
+#toast{position:absolute;left:50%;bottom:115px;transform:translateX(-50%);background:rgba(6,14,23,.72);border:1px solid rgba(255,255,255,.18);padding:11px 16px;border-radius:999px;opacity:0;transition:.35s;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1}
+.bottom{position:absolute;bottom:max(14px,env(safe-area-inset-bottom));left:12px;right:12px;display:flex;justify-content:center;gap:10px;pointer-events:auto}
+button{border:0;color:#fff;background:rgba(8,20,30,.72);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(12px);padding:12px 17px;border-radius:999px;font-weight:800;font-size:13px;box-shadow:0 8px 25px rgba(0,0,0,.25);cursor:pointer}
+button.primary{background:linear-gradient(135deg,rgba(75,180,255,.95),rgba(114,91,255,.95))}
+button:active{transform:scale(.97)}
+#start{position:absolute;inset:0;display:grid;place-items:center;background:radial-gradient(circle at 50% 42%,rgba(56,130,190,.25),rgba(3,9,16,.88));pointer-events:auto;transition:.6s}
+#start.hide{opacity:0;pointer-events:none}
+.panel{width:min(90vw,440px);padding:25px;border-radius:28px;text-align:center;background:rgba(4,13,22,.7);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(18px);box-shadow:0 25px 80px rgba(0,0,0,.45)}
+.panel h1{margin:0;font-size:34px}.panel p{opacity:.75;line-height:1.6;font-size:13px}.features{display:flex;justify-content:space-around;margin:18px 0;font-size:12px;opacity:.85}.features b{display:block;font-size:22px;margin-bottom:4px}
+#mode{font-size:10px;opacity:.7;margin-top:7px}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div class="top">
+    <div class="card"><div class="brand">🌌 Virtual Walk 2.0</div><div class="sub" id="phase">晨曦森林 · 隨機世界</div></div>
+    <div class="card stats">
+      <div class="stat"><div class="num" id="steps">0</div><div class="lab">步數</div></div>
+      <div class="stat"><div class="num" id="spm">0</div><div class="lab">SPM</div></div>
+      <div class="stat"><div class="num" id="dist">0.00</div><div class="lab">km</div></div>
+    </div>
+  </div>
+  <div id="center"><div id="landmark"></div><div class="desc" id="desc"></div></div>
+  <div id="toast"></div>
+  <div class="bottom">
+    <button class="primary" id="walkBtn">🚶 模擬走路</button>
+    <button id="newBtn">🎲 新世界</button>
+    <button id="motionBtn">📱 感測器</button>
+  </div>
+</div>
+
+<div id="start">
+  <div class="panel">
+    <h1>🌄 Virtual Walk</h1>
+    <p>把真實步行變成一場無限旅程。<br>森林、河流、村莊、城堡與星空會隨你的旅程生成。</p>
+    <div class="features">
+      <div><b>🌍</b>隨機世界</div><div><b>🌅</b>日夜循環</div><div><b>✨</b>隨機事件</div>
+    </div>
+    <button class="primary" id="startBtn">開始旅程</button>
+    <div id="mode">手機可開啟動作感測；也可使用螢幕按鈕模擬。</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+"use strict";
+
+// ===== Core =====
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(67,innerWidth/innerHeight,.1,950);
+camera.position.set(0,2.2,8);
+
+const renderer = new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+document.body.appendChild(renderer.domElement);
+
+const world = new THREE.Group(); scene.add(world);
+const movers = [], particles = [], landmarks = [];
+let seed = Math.floor(Math.random()*999999), rng;
+let distance=0, steps=0, walking=false, lastStep=0, stepTimes=[];
+let worldZ=0, segmentIndex=0, timeOfDay=0.28, daySpeed=0.0032;
+let currentBiome="", currentLandmark="";
+
+function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
+function R(a=0,b=1){return a+(b-a)*rng()}
+function pick(a){return a[Math.floor(R(0,a.length))]}
+function mat(c,rough=.8,em=0){return new THREE.MeshStandardMaterial({color:c,roughness:rough,metalness:.05,emissive:em?c:0,emissiveIntensity:em})}
+function box(x,y,z,c,sx,sy,sz){let m=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),mat(c));m.position.set(x,y,z);world.add(m);return m}
+function cyl(x,y,z,c,r,h,seg=8){let m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,seg),mat(c));m.position.set(x,y,z);world.add(m);return m}
+function sphere(x,y,z,c,r){let m=new THREE.Mesh(new THREE.SphereGeometry(r,10,8),mat(c));m.position.set(x,y,z);world.add(m);return m}
+
+const sun=new THREE.DirectionalLight(0xfff0cf,2.4);sun.position.set(40,80,20);scene.add(sun);
+const moon=new THREE.DirectionalLight(0x7799ff,.25);moon.position.set(-40,55,-30);scene.add(moon);
+const hemi=new THREE.HemisphereLight(0x8fd6ff,0x18351e,1.45);scene.add(hemi);
+scene.fog=new THREE.Fog(0x7fb4d6,45,300);
+
+const ground= new THREE.Mesh(new THREE.PlaneGeometry(110,110),mat(0x274d2f));
+ground.rotation.x=-Math.PI/2; ground.position.y=-.05; scene.add(ground);
+
+// stars
+const starGeo=new THREE.BufferGeometry(), starPos=[];
+for(let i=0;i<900;i++) starPos.push(R(-430,430),R(70,240),R(-430,430));
+starGeo.setAttribute("position",new THREE.Float32BufferAttribute(starPos,3));
+const stars=new THREE.Points(starGeo,new THREE.PointsMaterial({color:0xffffff,size:.75,transparent:true,opacity:.0}));
+scene.add(stars);
+
+// moon/sun
+const sunBall=new THREE.Mesh(new THREE.SphereGeometry(4,20,14),new THREE.MeshBasicMaterial({color:0xfff1b0}));
+const moonBall=new THREE.Mesh(new THREE.SphereGeometry(3,20,14),new THREE.MeshBasicMaterial({color:0xdde8ff}));
+scene.add(sunBall,moonBall);
+
+// ===== Visual objects =====
+function tree(x,z,scale=1){
+  const g=new THREE.Group(); g.position.set(x,0,z); g.scale.setScalar(scale);
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.22,.34,3.2,7),mat(0x5a3924));trunk.position.y=1.6;g.add(trunk);
+  const green=pick([0x174b2a,0x23613a,0x2e7440,0x1d5731]);
+  for(let i=0;i<3;i++){let c=new THREE.Mesh(new THREE.ConeGeometry(1.65-i*.25,2.8,9),mat(green));c.position.y=3.2+i*1.25;c.rotation.y=R(0,6.28);g.add(c)}
+  world.add(g); return g;
+}
+function pine(x,z,s=1){let g=new THREE.Group();g.position.set(x,0,z);g.scale.setScalar(s);
+  let t=new THREE.Mesh(new THREE.CylinderGeometry(.16,.25,2.5,7),mat(0x53341f));t.position.y=1.25;g.add(t);
+  for(let i=0;i<4;i++){let c=new THREE.Mesh(new THREE.ConeGeometry(1.3-i*.17,2.4,9),mat(0x1b4d39));c.position.y=2.1+i*.95;g.add(c)}
+  world.add(g);return g;
+}
+function flower(x,z,c){
+  for(let i=0;i<5;i++){let a=i*Math.PI*2/5; sphere(x+Math.cos(a)*.16, .72, z+Math.sin(a)*.16,c,.12)}
+  sphere(x,.72,z,0xffd35a,.08);
+}
+function lantern(x,z){
+  const p=new THREE.PointLight(0xffa84d,2.0,13);p.position.set(x,2.7,z);world.add(p);
+  box(x,2.2,z,0x33281c,.18,1.2,.18);sphere(x,3,z,0xffb84d,.25);
+}
+function house(x,z,s=1){
+  box(x,1.2,z,0xc98d5b,3.5*s,2.3*s,3*s);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(2.7*s,2.0*s,4),mat(0x6e2e2b));roof.rotation.y=Math.PI/4;roof.position.set(x,3.2*s,z);world.add(roof);
+  box(x,1.1,z-1.53*s,0x4a2a20,.65*s,1.2*s,.12*s);
+  for(let side of [-1,1]){box(x+side*1.0*s,1.55,z-1.57*s,0xffd875,.55*s,.55*s,.08*s)}
+  lantern(x+R(-.8,.8),z-1.8*s);
+}
+function river(z){
+  const water=new THREE.Mesh(new THREE.PlaneGeometry(15,105),new THREE.MeshStandardMaterial({color:0x168bb1,roughness:.15,metalness:.25,transparent:true,opacity:.86}));
+  water.rotation.x=-Math.PI/2;water.position.set(R(-1,1),.035,z);world.add(water);
+  for(let i=0;i<14;i++){let x=R(-6,6),zz=z+R(-48,48);sphere(x,.08,zz,0x7bdcf0,R(.12,.28))}
+  // bridge
+  box(0,.65,z,0x70452c,16,1,5);
+  for(let x=-6;x<=6;x+=2) box(x,1.25,z,0x4e3020,.18,1.3,.35);
+}
+function castle(z){
+  box(0,5,z,0xbfc2c5,8,10,7);
+  for(let x of [-3.7,3.7]){cyl(x,7,z,0xaeb2b5,1.45,14,10);let r=new THREE.Mesh(new THREE.ConeGeometry(1.8,3.1,4),mat(0x653d43));r.position.set(x,15,z);r.rotation.y=Math.PI/4;world.add(r)}
+  box(0,4,z-3.6,0x1c2027,2.2,5.5,.5);
+  for(let x=-3;x<=3;x+=1.5) box(x,9,z-3.7,0x8b3030,.55,3,.5);
+  for(let i=0;i<12;i++) sphere(R(-3.5,3.5),R(5,11),z+R(-4,4),0xffd36b,.12);
+}
+function mountain(x,z,s=1){
+  const g=new THREE.Group();g.position.set(x,0,z);g.scale.setScalar(s);
+  const m=new THREE.Mesh(new THREE.ConeGeometry(R(12,18),R(22,34),6),mat(pick([0x3d5661,0x536a70,0x455c63])));
+  m.position.y=10;g.add(m);
+  const snow=new THREE.Mesh(new THREE.ConeGeometry(5,9,6),mat(0xdce9e7));snow.position.y=22;g.add(snow);
+  world.add(g);
+}
+function waterfall(z){
+  box(0,7,z,0x3b5a54,13,14,4);
+  const w=new THREE.Mesh(new THREE.PlaneGeometry(4,11),new THREE.MeshStandardMaterial({color:0x9be9ff,transparent:true,opacity:.75,roughness:.1}));
+  w.position.set(0,5.5,z-2.1);world.add(w);
+  for(let i=0;i<20;i++) sphere(R(-2,2),R(.2,8),z-2.3,0xc8f5ff,R(.05,.14));
+}
+function eventAt(z){
+  const e=pick(["deer","meteor","rainbow","fireflies"]);
+  if(e==="deer"){sphere(R(-5,5),1.0,z,0x8b5a35,.7);toast("🦌 野鹿出現在森林邊緣！")}
+  if(e==="meteor"){toast("☄️ 天空劃過一顆流星！")}
+  if(e==="rainbow"){toast("🌈 雨後出現了彩虹！")}
+  if(e==="fireflies"){for(let i=0;i<30;i++) sphere(R(-9,9),R(1,7),z+R(-8,8),0xffe66d,.06);toast("✨ 螢火蟲在夜色中亮起")}
+}
+function segment(z){
+  const biomes=["翡翠森林","櫻花花谷","晨霧村","星河湖畔","遠古森林","高山草原","王國城堡"];
+  const b=pick(biomes);
+  currentBiome=b;
+  for(let i=0;i<11;i++){
+    let x=R(-14,14),zz=z+R(-13,13);
+    if(Math.abs(x)>4.2){
+      if(b==="高山草原") pine(x,zz,R(.65,1.25));
+      else tree(x,zz,R(.65,1.25));
+    }
+  }
+  for(let i=0;i<18;i++) flower(R(-8,8),z+R(-15,15),pick([0xff91b8,0xffd46a,0xa8d8ff,0xd5a7ff]));
+  if(segmentIndex%5===2) river(z);
+  if(segmentIndex%7===4){house(-7,z-3,.9);house(7,z+5,.8);toast("🏘️ 遠方出現一座溫暖的小村莊")}
+  if(segmentIndex%9===6){castle(z-18);toast("🏰 遠方發現神秘城堡")}
+  if(segmentIndex%6===3) waterfall(z-10);
+  if(segmentIndex%4===0){mountain(-25,z-30,R(.8,1.25));mountain(25,z-35,R(.7,1.2))}
+  if(R()<.23) eventAt(z);
+}
+function resetWorld(){
+  rng=mulberry32(seed);world.clear();segmentIndex=0;worldZ=0;
+  for(let i=0;i<18;i++){segment(-i*18);segmentIndex++}
+  toast("🎲 新世界已生成 · Seed "+seed);
+}
+function cleanup(){
+  // Keep a rolling world around the player.
+  while(world.children.length>0){
+    let obj=world.children[0];
+    if(obj.userData.persistent){world.remove(obj);continue}
+    if(obj.position && obj.position.z > 70) world.remove(obj); else break;
+  }
+}
+function addAhead(){
+  if(worldZ < -230){segment(-330);segmentIndex++;worldZ=-230}
+}
+
+// ===== UI / time =====
+const $=id=>document.getElementById(id);
+function toast(t){$("toast").textContent=t;$("toast").classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>$("toast").classList.remove("show"),3000)}
+function phase(){
+  const t=timeOfDay;
+  if(t<.18||t>.82)return["🌌 星空之夜",0x071126];
+  if(t<.28)return["🌅 夢幻黎明",0xffa978];
+  if(t<.62)return["☀️ 明亮白晝",0x77bde8];
+  if(t<.74)return["🌇 金色黃昏",0xff9d68];
+  return["🌆 藍調暮色",0x405a8d];
+}
+function updateSky(dt){
+  timeOfDay=(timeOfDay+dt*daySpeed)%1;
+  const ang=timeOfDay*Math.PI*2-Math.PI/2;
+  sunBall.position.set(Math.cos(ang)*110,Math.sin(ang)*90, -60);
+  moonBall.position.set(-Math.cos(ang)*105,-Math.sin(ang)*85, -40);
+  const daylight=Math.max(0,Math.sin(ang));
+  sun.intensity=.25+daylight*2.4;
+  moon.intensity=.1+(1-daylight)*.7;
+  hemi.intensity=.55+daylight*1.1;
+  stars.material.opacity=Math.pow(1-daylight,1.4)*.9;
+  const p=phase();$("phase").textContent=p[0]+" · Seed "+seed;
+  scene.fog.color.setHSL(.56, .38, .16+.38*daylight);
+  renderer.setClearColor(p[1]);
+}
+function step(){
+  const now=performance.now();
+  if(now-lastStep<280)return;
+  lastStep=now;steps++;distance+=.00072;
+  stepTimes.push(now);stepTimes=stepTimes.filter(t=>now-t<60000);
+  walking=true;
+  world.position.z+=.72;
+  worldZ-=.72;
+  camera.position.y=2.18;
+  addAhead();
+  $("steps").textContent=steps.toLocaleString();
+  $("dist").textContent=distance.toFixed(2);
+  $("spm").textContent=stepTimes.length;
+}
+function simulate(){for(let i=0;i<1;i++)step()}
+$("walkBtn").onclick=simulate;
+$("newBtn").onclick=()=>{seed=Math.floor(Math.random()*999999);resetWorld()};
+$("startBtn").onclick=()=>{$("start").classList.add("hide");toast("🌄 旅程開始 · 走幾步看看世界吧！")};
+
+async function enableMotion(){
+  try{
+    if(typeof DeviceMotionEvent!=="undefined" && typeof DeviceMotionEvent.requestPermission==="function"){
+      const p=await DeviceMotionEvent.requestPermission(); if(p!=="granted")throw 0;
+    }
+    window.addEventListener("devicemotion",motion);
+    $("motionBtn").textContent="📱 感測器已開";
+    toast("📱 動作感測已啟用");
+  }catch(e){toast("⚠️ 瀏覽器未授權感測器，請使用「模擬走路」")}
+}
+$("motionBtn").onclick=enableMotion;
+let lastMag=9.8, lastPeak=0;
+function motion(e){
+  const a=e.accelerationIncludingGravity;if(!a)return;
+  const m=Math.sqrt((a.x||0)**2+(a.y||0)**2+(a.z||0)**2);
+  if(m-lastMag>2.2 && m>12 && performance.now()-lastPeak>320){lastPeak=performance.now();step()}
+  lastMag=lastMag*.82+m*.18;
+}
+
+// ===== Camera animation =====
+let last=performance.now(), elapsed=0;
+function animate(){
+  requestAnimationFrame(animate);
+  const now=performance.now(),dt=Math.min(.05,(now-last)/1000);last=now;elapsed+=dt;
+  updateSky(dt);
+  const bob=walking?Math.sin(elapsed*10)*.035:0;
+  camera.position.y=2.2+bob;
+  camera.rotation.z=walking?Math.sin(elapsed*5)*.003:0;
+  walking=false;
+  renderer.render(scene,camera);
+}
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setSize(innerWidth,innerHeight)});
+resetWorld(); animate();
+</script>
+</body>
+</html>
