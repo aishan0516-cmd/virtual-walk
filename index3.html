@@ -84,7 +84,7 @@ document.body.appendChild(renderer.domElement);
 
 const world = new THREE.Group(); scene.add(world);
 const movers = [], particles = [], landmarks = [];
-let seed = Math.floor(Math.random()*999999), rng;
+let seed = Math.floor(Math.random()*999999), rng = mulberry32(seed);
 let distance=0, steps=0, walking=false, lastStep=0, stepTimes=[];
 let worldZ=0, segmentIndex=0, timeOfDay=0.28, daySpeed=0.0032;
 let currentBiome="", currentLandmark="";
@@ -200,7 +200,7 @@ function segment(z){
   if(R()<.23) eventAt(z);
 }
 function resetWorld(){
-  rng=mulberry32(seed);world.clear();segmentIndex=0;worldZ=0;
+  rng=mulberry32(seed);world.clear();segmentIndex=0;worldZ=0;nextChunkZ=-324;
   for(let i=0;i<18;i++){segment(-i*18);segmentIndex++}
   toast("🎲 新世界已生成 · Seed "+seed);
 }
@@ -212,8 +212,14 @@ function cleanup(){
     if(obj.position && obj.position.z > 70) world.remove(obj); else break;
   }
 }
+let nextChunkZ = -324;
 function addAhead(){
-  if(worldZ < -230){segment(-330);segmentIndex++;worldZ=-230}
+  if(worldZ < nextChunkZ){
+    const z = nextChunkZ - 18;
+    segment(z);
+    segmentIndex++;
+    nextChunkZ -= 18;
+  }
 }
 
 // ===== UI / time =====
